@@ -21,6 +21,12 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
   public var hooks: [any Hook] { [] }
   public var metadata: ProviderMetadata { MixpanelProviderMetadata() }
 
+  /// Creates a provider backed by an existing ``MixpanelFlags`` instance.
+  ///
+  /// Use this initializer when you already have a Mixpanel instance and want
+  /// to pass its `flags` property directly.
+  ///
+  /// - Parameter flags: The ``MixpanelFlags`` instance to use for flag evaluation.
   public init(flags: MixpanelFlags) {
     self.flags = flags
   }
@@ -153,13 +159,9 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
   // MARK: - Private
 
   private static func convertContext(_ context: any EvaluationContext) -> [String: Any] {
-    var dict: [String: Any] = [:]
-    let targetingKey = context.getTargetingKey()
-    if !targetingKey.isEmpty {
-      dict["targetingKey"] = targetingKey
-    }
-    for (key, value) in context.asMap() {
-      dict[key] = convertValue(value)
+    var dict: [String: Any] = context.asMap().mapValues { convertValue($0) }
+    if !context.getTargetingKey().isEmpty {
+      dict["targetingKey"] = context.getTargetingKey()
     }
     return dict
   }

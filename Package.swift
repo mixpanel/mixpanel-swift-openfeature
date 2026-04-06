@@ -16,7 +16,7 @@ let package = Package(
   dependencies: [
     .package(
       url: "https://github.com/mixpanel/mixpanel-swift",
-      branch: "msiebert-openfeature-provider"
+      from: "6.2.0"
     ),
     .package(
       name: "OpenFeature",
