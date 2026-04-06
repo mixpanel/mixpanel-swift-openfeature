@@ -13,11 +13,28 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
 
   private static let sentinelKey = "__openfeature_flag_not_found__"
 
+  /// The underlying Mixpanel instance, available when the provider was
+  /// created via `init(options:)`. Use this to call `identify()`,
+  /// `track()`, and other Mixpanel methods on the instance.
+  public private(set) var mixpanel: MixpanelInstance?
+
   public var hooks: [any Hook] { [] }
   public var metadata: ProviderMetadata { MixpanelProviderMetadata() }
 
   public init(flags: MixpanelFlags) {
     self.flags = flags
+  }
+
+  /// Creates a provider by initializing a new Mixpanel instance from the given options.
+  ///
+  /// The created `MixpanelInstance` is accessible via the ``mixpanel`` property
+  /// so you can call `identify()`, `track()`, and other methods on it.
+  ///
+  /// - Parameter options: Configuration options for the Mixpanel SDK.
+  public convenience init(options: MixpanelOptions) {
+    let instance = Mixpanel.initialize(options: options)
+    self.init(flags: instance.flags)
+    self.mixpanel = instance
   }
 
   public func observe() -> AnyPublisher<ProviderEvent?, Never> {
