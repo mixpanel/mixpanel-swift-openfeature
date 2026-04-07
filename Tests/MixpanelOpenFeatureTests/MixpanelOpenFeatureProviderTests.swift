@@ -90,7 +90,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
     let result = try provider.getBooleanEvaluation(key: "bool-flag", defaultValue: false, context: nil)
     XCTAssertEqual(result.value, true)
     XCTAssertEqual(result.variant, "on")
-    XCTAssertEqual(result.reason, "STATIC")
+    XCTAssertEqual(result.reason, "TARGETING_MATCH")
   }
 
   func testBooleanEvaluationTypeMismatch() throws {
@@ -114,7 +114,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
     let result = try provider.getStringEvaluation(key: "str-flag", defaultValue: "default", context: nil)
     XCTAssertEqual(result.value, "hello")
     XCTAssertEqual(result.variant, "variant-a")
-    XCTAssertEqual(result.reason, "STATIC")
+    XCTAssertEqual(result.reason, "TARGETING_MATCH")
   }
 
   func testStringEvaluationTypeMismatch() throws {
@@ -137,7 +137,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getIntegerEvaluation(key: "int-flag", defaultValue: 0, context: nil)
     XCTAssertEqual(result.value, Int64(42))
-    XCTAssertEqual(result.reason, "STATIC")
+    XCTAssertEqual(result.reason, "TARGETING_MATCH")
   }
 
   func testIntegerEvaluationFromWholeDouble() throws {
@@ -180,7 +180,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getDoubleEvaluation(key: "float-flag", defaultValue: 0.0, context: nil)
     XCTAssertEqual(result.value, 0.5)
-    XCTAssertEqual(result.reason, "STATIC")
+    XCTAssertEqual(result.reason, "TARGETING_MATCH")
   }
 
   func testDoubleEvaluationFromInt() throws {
@@ -214,7 +214,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
     let result = try provider.getObjectEvaluation(key: "obj-flag", defaultValue: .null, context: nil)
     XCTAssertEqual(result.value, .structure(["key": .string("value")]))
     XCTAssertEqual(result.variant, "config")
-    XCTAssertEqual(result.reason, "STATIC")
+    XCTAssertEqual(result.reason, "TARGETING_MATCH")
   }
 
   func testObjectEvaluationWithString() throws {
@@ -235,7 +235,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getBooleanEvaluation(key: "missing-flag", defaultValue: false, context: nil)
     XCTAssertEqual(result.value, false)
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -435,7 +435,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getBooleanEvaluation(key: "some-flag", defaultValue: true, context: nil)
     XCTAssertEqual(result.value, true)
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -445,7 +445,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getStringEvaluation(key: "some-flag", defaultValue: "default", context: nil)
     XCTAssertEqual(result.value, "default")
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -455,7 +455,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getIntegerEvaluation(key: "some-flag", defaultValue: 7, context: nil)
     XCTAssertEqual(result.value, Int64(7))
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -465,7 +465,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getDoubleEvaluation(key: "some-flag", defaultValue: 2.71, context: nil)
     XCTAssertEqual(result.value, 2.71)
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -475,7 +475,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getObjectEvaluation(key: "some-flag", defaultValue: .string("sentinel-default"), context: nil)
     XCTAssertEqual(result.value, .string("sentinel-default"))
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -522,7 +522,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getBooleanEvaluation(key: "missing", defaultValue: true, context: nil)
     XCTAssertEqual(result.value, true)
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -532,7 +532,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getStringEvaluation(key: "missing", defaultValue: "fallback", context: nil)
     XCTAssertEqual(result.value, "fallback")
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -542,7 +542,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getIntegerEvaluation(key: "missing", defaultValue: 42, context: nil)
     XCTAssertEqual(result.value, Int64(42))
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -552,7 +552,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getDoubleEvaluation(key: "missing", defaultValue: 1.5, context: nil)
     XCTAssertEqual(result.value, 1.5)
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 
@@ -562,7 +562,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
     let result = try provider.getObjectEvaluation(key: "missing", defaultValue: .boolean(true), context: nil)
     XCTAssertEqual(result.value, .boolean(true))
-    XCTAssertEqual(result.reason, "ERROR")
+    XCTAssertEqual(result.reason, "DEFAULT")
     XCTAssertEqual(result.errorCode, .flagNotFound)
   }
 

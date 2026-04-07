@@ -74,7 +74,7 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     let variant: MixpanelFlagVariant
     do {
       guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .flagNotFound)
+        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
       }
       variant = v
     } catch {
@@ -83,7 +83,7 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     guard let boolValue = variant.value as? Bool else {
       return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .typeMismatch)
     }
-    return ProviderEvaluation(value: boolValue, variant: variant.key, reason: "STATIC")
+    return ProviderEvaluation(value: boolValue, variant: variant.key, reason: "TARGETING_MATCH")
   }
 
   public func getStringEvaluation(
@@ -92,7 +92,7 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     let variant: MixpanelFlagVariant
     do {
       guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .flagNotFound)
+        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
       }
       variant = v
     } catch {
@@ -101,7 +101,7 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     guard let stringValue = variant.value as? String else {
       return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .typeMismatch)
     }
-    return ProviderEvaluation(value: stringValue, variant: variant.key, reason: "STATIC")
+    return ProviderEvaluation(value: stringValue, variant: variant.key, reason: "TARGETING_MATCH")
   }
 
   public func getIntegerEvaluation(
@@ -110,7 +110,7 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     let variant: MixpanelFlagVariant
     do {
       guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .flagNotFound)
+        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
       }
       variant = v
     } catch {
@@ -119,7 +119,7 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     guard let intValue = toInt64(variant.value) else {
       return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .typeMismatch)
     }
-    return ProviderEvaluation(value: intValue, variant: variant.key, reason: "STATIC")
+    return ProviderEvaluation(value: intValue, variant: variant.key, reason: "TARGETING_MATCH")
   }
 
   public func getDoubleEvaluation(
@@ -128,7 +128,7 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     let variant: MixpanelFlagVariant
     do {
       guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .flagNotFound)
+        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
       }
       variant = v
     } catch {
@@ -137,7 +137,7 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     guard let doubleValue = toDouble(variant.value) else {
       return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .typeMismatch)
     }
-    return ProviderEvaluation(value: doubleValue, variant: variant.key, reason: "STATIC")
+    return ProviderEvaluation(value: doubleValue, variant: variant.key, reason: "TARGETING_MATCH")
   }
 
   public func getObjectEvaluation(
@@ -146,14 +146,14 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     let variant: MixpanelFlagVariant
     do {
       guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .flagNotFound)
+        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
       }
       variant = v
     } catch {
       return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .providerNotReady)
     }
     let value = toValue(variant.value)
-    return ProviderEvaluation(value: value, variant: variant.key, reason: "STATIC")
+    return ProviderEvaluation(value: value, variant: variant.key, reason: "TARGETING_MATCH")
   }
 
   // MARK: - Private
