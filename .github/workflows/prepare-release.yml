@@ -1,0 +1,152 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.1.0 without v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    name: "📝 Prepare Release PR"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: main
+
+      - name: Validate version format
+        run: |
+          if ! [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Version must be in X.Y.Z format without 'v' prefix"
+            echo "Got: ${{ inputs.version }}"
+            exit 1
+          fi
+          echo "✓ Version format valid: ${{ inputs.version }}"
+
+      - name: Check if version tag already exists
+        run: |
+          if git ls-remote --tags origin | grep -q "refs/tags/${{ inputs.version }}$"; then
+            echo "ERROR: Tag ${{ inputs.version }} already exists"
+            echo "Please use a different version number."
+            exit 1
+          fi
+          echo "✓ Tag does not exist yet"
+
+      - name: Generate changelog entry
+        run: |
+          VERSION="${{ inputs.version }}"
+
+          # Generate changelog from conventional commits
+          if [ -f "scripts/generate-changelog.sh" ]; then
+            CHANGELOG_ENTRY=$(bash scripts/generate-changelog.sh "$VERSION")
+
+            # Prepend to CHANGELOG.md (after the header)
+            if [ -f "CHANGELOG.md" ]; then
+              # Create temp file with new entry + existing changelog
+              {
+                head -n 4 CHANGELOG.md  # Keep the header (4 lines)
+                echo ""
+                echo "$CHANGELOG_ENTRY"
+                tail -n +5 CHANGELOG.md  # Append rest of changelog
+              } > CHANGELOG.md.tmp
+              mv CHANGELOG.md.tmp CHANGELOG.md
+              echo "✓ Generated and prepended changelog entry"
+            else
+              echo "⚠️  CHANGELOG.md not found, skipping changelog generation"
+            fi
+          else
+            echo "⚠️  generate-changelog.sh not found, skipping changelog generation"
+          fi
+
+      - name: Create release branch and commit
+        run: |
+          VERSION="${{ inputs.version }}"
+          BRANCH="release/$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+          git add CHANGELOG.md
+
+          git commit -m "release: prepare $VERSION
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+
+          git push origin "$BRANCH"
+
+          echo "✓ Created branch $BRANCH and pushed to origin"
+
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          BRANCH="release/$VERSION"
+
+          # Extract changelog for PR body
+          CHANGELOG_SECTION=""
+          if [ -f "CHANGELOG.md" ]; then
+            CHANGELOG_SECTION=$(awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (match($0, "^## \\[" ver "\\]\\(")) {
+                inSection = 1
+                next
+              }
+              if (inSection) {
+                exit
+              }
+            }
+            inSection { print }
+            ' CHANGELOG.md)
+          fi
+
+          # Create PR body
+          PR_BODY=$(cat <<EOF
+## Release $VERSION
+
+This PR prepares the release for version \`$VERSION\`.
+
+### Changes in this release
+
+$CHANGELOG_SECTION
+
+### Checklist
+
+- [ ] CHANGELOG.md updated with release notes
+- [ ] All CI checks pass
+
+### Next steps
+
+After merging this PR:
+1. Run the **Release SPM** workflow with version \`$VERSION\`
+2. Publish the draft GitHub Release
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)
+
+          gh pr create \
+            --title "release: prepare $VERSION" \
+            --body "$PR_BODY" \
+            --base main \
+            --head "$BRANCH"
+
+          echo "✓ Pull request created"
+
+      - name: Preparation complete
+        run: |
+          echo "✅ Release preparation complete!"
+          echo ""
+          echo "Next steps:"
+          echo "  1. Review the PR: https://github.com/${{ github.repository }}/pulls"
+          echo "  2. Merge the PR after approval"
+          echo "  3. Run 'Release SPM' workflow with version ${{ inputs.version }}"

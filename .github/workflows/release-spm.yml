@@ -1,0 +1,141 @@
+name: Release SPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.1.0 without v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-spm-${{ inputs.version }}
+  cancel-in-progress: false  # Never cancel during release
+
+jobs:
+  release-spm:
+    name: "📦 Release SPM"
+    runs-on: macos-26
+    environment: release-tagging
+    steps:
+      - name: Enforce main branch requirement
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "ERROR: This workflow can only run from main branch"
+            echo "Current ref: ${{ github.ref }}"
+            echo ""
+            echo "To fix: Navigate to Actions → Release SPM"
+            echo "        Click the branch dropdown and select 'main'"
+            echo "        Then run the workflow"
+            exit 1
+          fi
+          echo "✓ Running from main branch"
+
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify tag does not exist
+        run: |
+          if git ls-remote --tags origin | grep -q "refs/tags/${{ inputs.version }}$"; then
+            echo "ERROR: Tag ${{ inputs.version }} already exists on origin"
+            echo ""
+            echo "If you need to re-release, use a patch version increment."
+            echo "Tags are immutable and cannot be deleted or moved."
+            exit 1
+          fi
+          echo "✓ Tag does not exist"
+
+      - name: Validate Swift package
+        run: |
+          echo "Building Swift package..."
+          swift build
+
+          echo "Running tests..."
+          swift test
+
+          echo "✓ Swift package builds and tests pass"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create annotated tag (no 'v' prefix)
+          git tag -a "${{ inputs.version }}" -m "Release ${{ inputs.version }}"
+
+          # Push tag to origin
+          git push origin "${{ inputs.version }}"
+
+      - name: Extract changelog for this version
+        id: extract_changelog
+        run: |
+          VERSION="${{ inputs.version }}"
+
+          if [ ! -f "CHANGELOG.md" ]; then
+            echo "⚠️  CHANGELOG.md not found, will use auto-generated notes"
+            echo "CHANGELOG_FOUND=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract this version's changelog entry
+          # Starts with "## [VERSION](...)" and ends before next "## [" or EOF
+          # The changelog format includes a link after the version number
+          # Uses state-based matching to avoid range pattern issues
+          CHANGELOG=$(awk -v ver="$VERSION" '
+          /^## \[/ {
+            if (match($0, "^## \\[" ver "\\]\\(")) {
+              inSection = 1
+              print
+              next
+            }
+            if (inSection) {
+              exit
+            }
+          }
+          inSection { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$CHANGELOG" ]; then
+            echo "⚠️  Changelog entry for version $VERSION not found in CHANGELOG.md"
+            echo "CHANGELOG_FOUND=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Save to temp file for gh release create
+          echo "$CHANGELOG" > /tmp/release-notes.md
+
+          echo "CHANGELOG_FOUND=true" >> $GITHUB_OUTPUT
+          echo "✓ Extracted changelog entry for $VERSION"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Creating GitHub Release..."
+
+          if [ "${{ steps.extract_changelog.outputs.CHANGELOG_FOUND }}" = "true" ]; then
+            # Use curated changelog from CHANGELOG.md
+            gh release create "${{ inputs.version }}" \
+              --title "Release ${{ inputs.version }}" \
+              --notes-file /tmp/release-notes.md
+            echo "✓ GitHub Release created with changelog from CHANGELOG.md"
+          else
+            # Fallback to auto-generated notes
+            gh release create "${{ inputs.version }}" \
+              --title "Release ${{ inputs.version }}" \
+              --generate-notes
+            echo "✓ GitHub Release created with auto-generated notes"
+          fi
+
+      - name: SPM release complete
+        run: |
+          echo "✅ Tag ${{ inputs.version }} created successfully!"
+          echo "✅ GitHub Release published!"
+          echo ""
+          echo "Swift Package Manager users can now use version ${{ inputs.version }}"
