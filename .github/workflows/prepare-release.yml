@@ -12,6 +12,10 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: prepare-release-${{ inputs.version }}
+  cancel-in-progress: true
+
 jobs:
   prepare:
     name: "📝 Prepare Release PR"
@@ -21,6 +25,22 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: main
+
+      - name: Extract module config
+        id: config
+        run: |
+          MODULE="openfeature"
+          MODULE_CONFIG=$(jq -e '.openfeature' .github/modules.json)
+
+          if [ -z "$MODULE_CONFIG" ] || [ "$MODULE_CONFIG" = "null" ]; then
+            echo "ERROR: Module 'openfeature' not found in .github/modules.json"
+            exit 1
+          fi
+
+          echo "version_files=$(echo "$MODULE_CONFIG" | jq -c '.version_files // []')" >> $GITHUB_OUTPUT
+          echo "changelog=$(echo "$MODULE_CONFIG" | jq -r '.changelog')" >> $GITHUB_OUTPUT
+
+          echo "✓ Module config loaded for: openfeature"
 
       - name: Validate version format
         run: |
@@ -40,27 +60,61 @@ jobs:
           fi
           echo "✓ Tag does not exist yet"
 
+      - name: Get current version
+        id: current_version
+        run: |
+          # Extract current version from Constants.swift
+          CONSTANTS_FILE="Sources/MixpanelOpenFeature/Constants.swift"
+          if [ -f "$CONSTANTS_FILE" ]; then
+            CURRENT_VERSION=$(grep -E 'private static let libVersion = "[0-9]+\.[0-9]+\.[0-9]+"' "$CONSTANTS_FILE" | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')
+            echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "Current version: $CURRENT_VERSION"
+          else
+            echo "⚠️  Constants.swift not found, skipping version extraction"
+          fi
+
+      - name: Update version in files
+        run: |
+          OLD_VERSION="${{ steps.current_version.outputs.CURRENT_VERSION }}"
+          NEW_VERSION="${{ inputs.version }}"
+
+          if [ -n "$OLD_VERSION" ]; then
+            # Update each version file from JSON config
+            echo '${{ steps.config.outputs.version_files }}' | jq -r '.[]' | while read -r FILE; do
+              if [ -f "$FILE" ]; then
+                sed -i.bak "s/$OLD_VERSION/$NEW_VERSION/g" "$FILE"
+                rm "${FILE}.bak"
+                echo "✓ Updated version in $FILE"
+              else
+                echo "⚠️  Version file not found: $FILE"
+              fi
+            done
+          else
+            echo "⚠️  No current version found, skipping version file updates"
+          fi
+
       - name: Generate changelog entry
         run: |
           VERSION="${{ inputs.version }}"
+          CHANGELOG_PATH="${{ steps.config.outputs.changelog }}"
 
           # Generate changelog from conventional commits
           if [ -f "scripts/generate-changelog.sh" ]; then
-            CHANGELOG_ENTRY=$(bash scripts/generate-changelog.sh "$VERSION")
+            CHANGELOG_ENTRY=$(bash scripts/generate-changelog.sh "$VERSION" "mixpanel/mixpanel-swift-openfeature")
 
             # Prepend to CHANGELOG.md (after the header)
-            if [ -f "CHANGELOG.md" ]; then
+            if [ -f "$CHANGELOG_PATH" ]; then
               # Create temp file with new entry + existing changelog
               {
-                head -n 4 CHANGELOG.md  # Keep the header (4 lines)
+                head -n 4 "$CHANGELOG_PATH"  # Keep the header (4 lines)
                 echo ""
                 echo "$CHANGELOG_ENTRY"
-                tail -n +5 CHANGELOG.md  # Append rest of changelog
-              } > CHANGELOG.md.tmp
-              mv CHANGELOG.md.tmp CHANGELOG.md
+                tail -n +5 "$CHANGELOG_PATH"  # Append rest of changelog
+              } > "${CHANGELOG_PATH}.tmp"
+              mv "${CHANGELOG_PATH}.tmp" "$CHANGELOG_PATH"
               echo "✓ Generated and prepended changelog entry"
             else
-              echo "⚠️  CHANGELOG.md not found, skipping changelog generation"
+              echo "⚠️  $CHANGELOG_PATH not found, skipping changelog generation"
             fi
           else
             echo "⚠️  generate-changelog.sh not found, skipping changelog generation"
@@ -75,7 +129,11 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git checkout -b "$BRANCH"
-          git add CHANGELOG.md
+
+          # Add version files if they exist
+          echo '${{ steps.config.outputs.version_files }}' | jq -r '.[]' | xargs -r git add
+          # Add changelog
+          git add "${{ steps.config.outputs.changelog }}"
 
           git commit -m "release: prepare $VERSION
 
