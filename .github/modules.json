@@ -1,0 +1,11 @@
+{
+  "openfeature": {
+    "tag_prefix": "",
+    "version_files": [
+      "Sources/MixpanelOpenFeature/Constants.swift"
+    ],
+    "changelog": "CHANGELOG.md",
+    "readme": "README.md",
+    "package_name": "mixpanel-swift-openfeature"
+  }
+}

@@ -1,0 +1,155 @@
+name: Release SPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.1.0 without v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-spm-${{ inputs.version }}
+  cancel-in-progress: false  # Never cancel during release
+
+jobs:
+  release-spm:
+    name: "📦 Release SPM"
+    runs-on: macos-26
+    environment: release
+    steps:
+      - name: Enforce main branch requirement
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "ERROR: This workflow can only run from main branch"
+            echo "Current ref: ${{ github.ref }}"
+            echo ""
+            echo "To fix: Navigate to Actions → Release SPM"
+            echo "        Click the branch dropdown and select 'main'"
+            echo "        Then run the workflow"
+            exit 1
+          fi
+          echo "✓ Running from main branch"
+
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Extract module config
+        id: config
+        run: |
+          MODULE="openfeature"
+          MODULE_CONFIG=$(jq -e '.openfeature' .github/modules.json)
+
+          if [ -z "$MODULE_CONFIG" ] || [ "$MODULE_CONFIG" = "null" ]; then
+            echo "ERROR: Module 'openfeature' not found in .github/modules.json"
+            exit 1
+          fi
+
+          TAG_PREFIX=$(echo "$MODULE_CONFIG" | jq -r '.tag_prefix')
+          FULL_TAG="${TAG_PREFIX}${{ inputs.version }}"
+
+          echo "full_tag=$FULL_TAG" >> $GITHUB_OUTPUT
+          echo "changelog=$(echo "$MODULE_CONFIG" | jq -r '.changelog')" >> $GITHUB_OUTPUT
+
+          echo "✓ Full tag: $FULL_TAG"
+
+      - name: Verify tag does not exist
+        run: |
+          FULL_TAG="${{ steps.config.outputs.full_tag }}"
+          if git ls-remote --tags origin | grep -q "refs/tags/$FULL_TAG$"; then
+            echo "ERROR: Tag $FULL_TAG already exists on origin"
+            echo ""
+            echo "If you need to re-release, use a patch version increment."
+            echo "Tags are immutable and cannot be deleted or moved."
+            exit 1
+          fi
+          echo "✓ Tag $FULL_TAG does not exist"
+
+      - name: Validate Swift package
+        run: |
+          echo "Building Swift package..."
+          swift build
+
+          echo "Running tests..."
+          swift test
+
+          echo "✓ Swift package builds and tests pass"
+
+      - name: Create and push tag
+        run: |
+          FULL_TAG="${{ steps.config.outputs.full_tag }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create annotated tag
+          git tag -a "$FULL_TAG" -m "Release ${{ inputs.version }}"
+
+          # Push tag to origin
+          git push origin "$FULL_TAG"
+
+          echo "✓ Created and pushed tag: $FULL_TAG"
+
+      - name: Extract changelog for this version
+        id: extract_changelog
+        run: |
+          FULL_TAG="${{ steps.config.outputs.full_tag }}"
+          CHANGELOG="${{ steps.config.outputs.changelog }}"
+
+          if [ ! -f "$CHANGELOG" ]; then
+            echo "⚠️  $CHANGELOG not found, will use auto-generated notes"
+            echo "CHANGELOG_FOUND=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract this version's changelog entry via a sed range.
+          CHANGELOG_BODY=$(sed -n '\@^## \['"${FULL_TAG}"'\]@,\@^## \[@{\@^## \['"${FULL_TAG}"'\]@d;\@^## \[@d;p;}' "$CHANGELOG" 2>/dev/null || true)
+
+          if [ -z "$CHANGELOG_BODY" ]; then
+            echo "⚠️  Changelog entry for $FULL_TAG not found in $CHANGELOG"
+            echo "CHANGELOG_FOUND=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Save to temp file for gh release create
+          echo "$CHANGELOG_BODY" > /tmp/release-notes.md
+
+          echo "CHANGELOG_FOUND=true" >> $GITHUB_OUTPUT
+          echo "✓ Extracted changelog entry for $FULL_TAG"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FULL_TAG="${{ steps.config.outputs.full_tag }}"
+
+          echo "Creating GitHub Release for $FULL_TAG..."
+
+          if [ "${{ steps.extract_changelog.outputs.CHANGELOG_FOUND }}" = "true" ]; then
+            # Use curated changelog from CHANGELOG.md
+            gh release create "$FULL_TAG" \
+              --title "Release ${{ inputs.version }}" \
+              --notes-file /tmp/release-notes.md
+            echo "✓ GitHub Release created with changelog from CHANGELOG.md"
+          else
+            # Fallback to auto-generated notes
+            gh release create "$FULL_TAG" \
+              --title "Release ${{ inputs.version }}" \
+              --generate-notes
+            echo "✓ GitHub Release created with auto-generated notes"
+          fi
+
+      - name: SPM release complete
+        run: |
+          FULL_TAG="${{ steps.config.outputs.full_tag }}"
+
+          echo "✅ Tag $FULL_TAG created successfully!"
+          echo "✅ GitHub Release published!"
+          echo ""
+          echo "Swift Package Manager users can now use version ${{ inputs.version }}"
