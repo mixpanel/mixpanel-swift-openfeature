@@ -11,7 +11,15 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
   private let flags: MixpanelFlags
   private let eventHandler = EventHandler()
 
-  private static let sentinelKey = "__openfeature_flag_not_found__"
+  /// Outcome of a single flag resolution. `resolve()` dispatches on
+  /// `MixpanelFlagVariant.source` to distinguish the three fallback reasons
+  /// exposed by SDK-79 (flag missing vs flags not ready vs backend failure),
+  /// mapping each to a specific OpenFeature error code instead of collapsing
+  /// them all to `.flagNotFound` as the pre-SDK-79 wrapper did.
+  private enum Resolution {
+    case success(MixpanelFlagVariant)
+    case error(errorCode: ErrorCode, reason: String)
+  }
 
   /// The underlying Mixpanel instance, available when the provider was
   /// created via `init(options:)`. Use this to call `identify()`,
@@ -72,13 +80,11 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     key: String, defaultValue: Bool, context: (any EvaluationContext)?
   ) throws -> ProviderEvaluation<Bool> {
     let variant: MixpanelFlagVariant
-    do {
-      guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
-      }
+    switch resolve(key) {
+    case .error(let errorCode, let reason):
+      return ProviderEvaluation(value: defaultValue, reason: reason, errorCode: errorCode)
+    case .success(let v):
       variant = v
-    } catch {
-      return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .providerNotReady)
     }
     guard let boolValue = variant.value as? Bool else {
       return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .typeMismatch)
@@ -90,13 +96,11 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     key: String, defaultValue: String, context: (any EvaluationContext)?
   ) throws -> ProviderEvaluation<String> {
     let variant: MixpanelFlagVariant
-    do {
-      guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
-      }
+    switch resolve(key) {
+    case .error(let errorCode, let reason):
+      return ProviderEvaluation(value: defaultValue, reason: reason, errorCode: errorCode)
+    case .success(let v):
       variant = v
-    } catch {
-      return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .providerNotReady)
     }
     guard let stringValue = variant.value as? String else {
       return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .typeMismatch)
@@ -108,13 +112,11 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     key: String, defaultValue: Int64, context: (any EvaluationContext)?
   ) throws -> ProviderEvaluation<Int64> {
     let variant: MixpanelFlagVariant
-    do {
-      guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
-      }
+    switch resolve(key) {
+    case .error(let errorCode, let reason):
+      return ProviderEvaluation(value: defaultValue, reason: reason, errorCode: errorCode)
+    case .success(let v):
       variant = v
-    } catch {
-      return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .providerNotReady)
     }
     guard let intValue = toInt64(variant.value) else {
       return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .typeMismatch)
@@ -126,13 +128,11 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     key: String, defaultValue: Double, context: (any EvaluationContext)?
   ) throws -> ProviderEvaluation<Double> {
     let variant: MixpanelFlagVariant
-    do {
-      guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
-      }
+    switch resolve(key) {
+    case .error(let errorCode, let reason):
+      return ProviderEvaluation(value: defaultValue, reason: reason, errorCode: errorCode)
+    case .success(let v):
       variant = v
-    } catch {
-      return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .providerNotReady)
     }
     guard let doubleValue = toDouble(variant.value) else {
       return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .typeMismatch)
@@ -144,13 +144,11 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     key: String, defaultValue: Value, context: (any EvaluationContext)?
   ) throws -> ProviderEvaluation<Value> {
     let variant: MixpanelFlagVariant
-    do {
-      guard let v = try resolve(key) else {
-        return ProviderEvaluation(value: defaultValue, reason: "DEFAULT", errorCode: .flagNotFound)
-      }
+    switch resolve(key) {
+    case .error(let errorCode, let reason):
+      return ProviderEvaluation(value: defaultValue, reason: reason, errorCode: errorCode)
+    case .success(let v):
       variant = v
-    } catch {
-      return ProviderEvaluation(value: defaultValue, reason: "ERROR", errorCode: .providerNotReady)
     }
     let value = toValue(variant.value)
     return ProviderEvaluation(value: value, variant: variant.key, reason: "TARGETING_MATCH")
@@ -179,19 +177,32 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     }
   }
 
-  private func resolve(_ key: String) throws -> MixpanelFlagVariant? {
+  private func resolve(_ key: String) -> Resolution {
+    // Short-circuit before the sync call so callers who invoke pre-load get
+    // `.providerNotReady` even if the underlying `getVariantSync` were to
+    // hand back a `.fallback(reason: .flagNotFound)` (e.g. against a mock
+    // that doesn't stamp `.notReady`). Base SDK also stamps `.notReady` on
+    // its own fallback in this case — the switch below catches that too.
     guard flags.areFlagsReady() else {
-      throw OpenFeatureError.providerNotReadyError
+      return .error(errorCode: .providerNotReady, reason: "ERROR")
     }
 
-    let fallback = MixpanelFlagVariant(key: Self.sentinelKey)
+    // Pass a plain fallback; the base SDK re-stamps it with the concrete
+    // `Source.fallback(reason:)` reason when it can't serve a real variant.
+    let fallback = MixpanelFlagVariant(key: "")
     let variant = flags.getVariantSync(key, fallback: fallback)
 
-    guard variant.key != Self.sentinelKey else {
-      return nil
+    if case .fallback(let reason) = variant.source {
+      switch reason {
+      case .flagNotFound:
+        return .error(errorCode: .flagNotFound, reason: "DEFAULT")
+      case .notReady:
+        return .error(errorCode: .providerNotReady, reason: "ERROR")
+      case .backendError:
+        return .error(errorCode: .general, reason: "ERROR")
+      }
     }
-
-    return variant
+    return .success(variant)
   }
 
   private func toInt64(_ value: Any?) -> Int64? {

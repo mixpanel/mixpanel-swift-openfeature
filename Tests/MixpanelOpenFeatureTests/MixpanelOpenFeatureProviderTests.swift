@@ -13,6 +13,13 @@ class MockMixpanelFlags: MixpanelFlags {
   var ready: Bool = true
   var lastSetContext: [String: Any]?
 
+  /// Per-key override for `MixpanelFlagVariant.Source`. When set, the mock
+  /// stamps the specified source on the returned variant (or the fallback,
+  /// if no `variants[flagName]` entry exists). Used by the SDK-79 wrapper
+  /// tests to simulate `.notReady` and `.backendError` fallbacks that the
+  /// base SDK produces internally.
+  var variantSources: [String: MixpanelFlagVariant.Source] = [:]
+
   func loadFlags() {}
 
   func loadFlags(completion: ((Bool) -> Void)?) {
@@ -27,7 +34,17 @@ class MockMixpanelFlags: MixpanelFlags {
   func areFlagsReady() -> Bool { ready }
 
   func getVariantSync(_ flagName: String, fallback: MixpanelFlagVariant) -> MixpanelFlagVariant {
-    return variants[flagName] ?? fallback
+    // Mirror the base SDK's stamping behavior: found variants come back as
+    // `.network`; missing keys come back as `.fallback(reason: .flagNotFound)`.
+    // Tests can override the stamp per key via `variantSources`.
+    if let source = variantSources[flagName] {
+      let base = variants[flagName] ?? fallback
+      return base.withSource(source)
+    }
+    if let existing = variants[flagName] {
+      return existing.withSource(.network)
+    }
+    return fallback.withSource(.fallback(reason: .flagNotFound))
   }
 
   func getVariant(
@@ -512,6 +529,92 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
     let objResult = try provider.getObjectEvaluation(key: "f", defaultValue: .null, context: nil)
     XCTAssertEqual(objResult.value, .null)
     XCTAssertEqual(objResult.errorCode, .providerNotReady)
+  }
+
+  // MARK: - Fallback Reason Dispatch (SDK-79 / SDK-132)
+
+  // The base SDK returns `MixpanelFlagVariant` stamped with
+  // `Source.fallback(reason:)` when it can't serve a real variant. The three
+  // reasons carry distinct meaning:
+  //   .flagNotFound  — key not in the cache or /flags response
+  //   .notReady      — flags haven't loaded yet
+  //   .backendError  — /flags fetch failed and nothing cached
+  //
+  // Before SDK-132 the wrapper collapsed all three to `.flagNotFound` via a
+  // sentinel-key trick. These tests pin the post-fix mapping.
+
+  func testFallbackReasonFlagNotFoundMapsToFlagNotFound() throws {
+    let mock = MockMixpanelFlags()
+    let provider = MixpanelOpenFeatureProvider(flags: mock)
+    // Any missing key gets the default `.fallback(reason: .flagNotFound)`
+    // stamp from the mock — see MockMixpanelFlags.getVariantSync.
+
+    let result = try provider.getBooleanEvaluation(key: "missing", defaultValue: false, context: nil)
+    XCTAssertEqual(result.value, false)
+    XCTAssertEqual(result.errorCode, .flagNotFound)
+    XCTAssertEqual(result.reason, "DEFAULT")
+  }
+
+  func testFallbackReasonNotReadyMapsToProviderNotReady() throws {
+    let mock = MockMixpanelFlags()
+    // Keep areFlagsReady() == true so the early-return doesn't fire, then
+    // simulate a base SDK that stamps `.notReady` on the sync path anyway
+    // (a race the switch below is meant to catch).
+    mock.variantSources["stale-flag"] = .fallback(reason: .notReady)
+    let provider = MixpanelOpenFeatureProvider(flags: mock)
+
+    let result = try provider.getBooleanEvaluation(key: "stale-flag", defaultValue: false, context: nil)
+    XCTAssertEqual(result.value, false)
+    XCTAssertEqual(result.errorCode, .providerNotReady)
+    XCTAssertEqual(result.reason, "ERROR")
+  }
+
+  func testFallbackReasonBackendErrorMapsToGeneral() throws {
+    let mock = MockMixpanelFlags()
+    mock.variantSources["broken-flag"] = .fallback(reason: .backendError)
+    let provider = MixpanelOpenFeatureProvider(flags: mock)
+
+    let result = try provider.getBooleanEvaluation(key: "broken-flag", defaultValue: false, context: nil)
+    XCTAssertEqual(result.value, false)
+    XCTAssertEqual(result.errorCode, .general)
+    XCTAssertEqual(result.reason, "ERROR")
+  }
+
+  func testFallbackReasonBackendErrorAllTypes() throws {
+    let mock = MockMixpanelFlags()
+    mock.variantSources["broken"] = .fallback(reason: .backendError)
+    let provider = MixpanelOpenFeatureProvider(flags: mock)
+
+    let str = try provider.getStringEvaluation(key: "broken", defaultValue: "d", context: nil)
+    XCTAssertEqual(str.errorCode, .general)
+    XCTAssertEqual(str.reason, "ERROR")
+
+    let int = try provider.getIntegerEvaluation(key: "broken", defaultValue: 0, context: nil)
+    XCTAssertEqual(int.errorCode, .general)
+    XCTAssertEqual(int.reason, "ERROR")
+
+    let dbl = try provider.getDoubleEvaluation(key: "broken", defaultValue: 0.0, context: nil)
+    XCTAssertEqual(dbl.errorCode, .general)
+    XCTAssertEqual(dbl.reason, "ERROR")
+
+    let obj = try provider.getObjectEvaluation(key: "broken", defaultValue: .null, context: nil)
+    XCTAssertEqual(obj.errorCode, .general)
+    XCTAssertEqual(obj.reason, "ERROR")
+  }
+
+  func testNetworkSourcedVariantResolvesSuccessfully() throws {
+    // Guards against a regression where the switch on `.fallback` would
+    // accidentally match successful `.network` / `.persistence` variants.
+    let mock = MockMixpanelFlags()
+    mock.variants["real-flag"] = MixpanelFlagVariant(key: "treatment", value: true)
+    // Mock stamps .network by default when a variant is present.
+    let provider = MixpanelOpenFeatureProvider(flags: mock)
+
+    let result = try provider.getBooleanEvaluation(key: "real-flag", defaultValue: false, context: nil)
+    XCTAssertEqual(result.value, true)
+    XCTAssertEqual(result.variant, "treatment")
+    XCTAssertEqual(result.reason, "TARGETING_MATCH")
+    XCTAssertNil(result.errorCode)
   }
 
   // MARK: - Default Value Fallback
