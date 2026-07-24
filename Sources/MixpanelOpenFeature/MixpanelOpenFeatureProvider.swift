@@ -200,6 +200,12 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
         return .error(errorCode: .providerNotReady, reason: "ERROR")
       case .backendError:
         return .error(errorCode: .general, reason: "ERROR")
+      // Fail closed on unrecognized reasons so a new case added to the base
+      // SDK's FallbackReason enum doesn't source-break this wrapper on
+      // recompile. `@unknown default` also nudges the compiler to warn when
+      // a new case is added, prompting explicit handling.
+      @unknown default:
+        return .error(errorCode: .general, reason: "ERROR")
       }
     }
     return .success(variant)
