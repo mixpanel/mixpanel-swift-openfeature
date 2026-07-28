@@ -24,7 +24,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          ref: main
           fetch-depth: 0
+
+      - name: Validate version format
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if ! [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Version must be in X.Y.Z format without a v prefix"
+            echo "Got: $INPUT_VERSION"
+            exit 1
+          fi
+          echo "✓ Version format valid: $INPUT_VERSION"
 
       - name: Extract module config
         id: config
@@ -97,19 +109,25 @@ jobs:
           # Generate new changelog entry
           ./scripts/generate-changelog.sh "$NEW_VERSION" "mixpanel/mixpanel-swift-openfeature" > /tmp/new-changelog.md
 
-          # Prepend to existing CHANGELOG.md or create new one
+          # Prepend to existing CHANGELOG.md or create new one. Preserve the
+          # `# Changelog` header at the top by keeping the first 4 lines
+          # (header + blank + intro) intact and inserting the new entry after
+          # them — otherwise the new H2 lands above the H1.
           CHANGELOG_PATH="${{ steps.config.outputs.changelog }}"
           if [ -f "$CHANGELOG_PATH" ]; then
-            # Backup existing changelog
             cp "$CHANGELOG_PATH" /tmp/existing-changelog.md
-            # Prepend new entry
-            cat /tmp/new-changelog.md > "$CHANGELOG_PATH"
-            cat /tmp/existing-changelog.md >> "$CHANGELOG_PATH"
+            {
+              head -n 4 /tmp/existing-changelog.md
+              echo ""
+              cat /tmp/new-changelog.md
+              tail -n +5 /tmp/existing-changelog.md
+            } > "$CHANGELOG_PATH"
           else
-            # Create new CHANGELOG.md
-            echo "# Changelog" > "$CHANGELOG_PATH"
-            echo "" >> "$CHANGELOG_PATH"
-            cat /tmp/new-changelog.md >> "$CHANGELOG_PATH"
+            {
+              echo "# Changelog"
+              echo ""
+              cat /tmp/new-changelog.md
+            } > "$CHANGELOG_PATH"
           fi
 
           echo "✓ Changelog generated"
