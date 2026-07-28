@@ -55,9 +55,55 @@ jobs:
           FULL_TAG="${TAG_PREFIX}${{ inputs.version }}"
 
           echo "full_tag=$FULL_TAG" >> $GITHUB_OUTPUT
+          echo "version_files=$(echo "$MODULE_CONFIG" | jq -c '.version_files // []')" >> $GITHUB_OUTPUT
           echo "changelog=$(echo "$MODULE_CONFIG" | jq -r '.changelog')" >> $GITHUB_OUTPUT
 
           echo "✓ Full tag: $FULL_TAG"
+
+      - name: Validate version consistency
+        run: |
+          INPUT_VERSION="${{ inputs.version }}"
+          MISMATCH=0
+
+          # Iterate via process substitution so MISMATCH updates in the parent
+          # shell (a piped `while` runs in a subshell and loses the flag).
+          while read -r FILE; do
+            if [ ! -f "$FILE" ]; then
+              echo "ERROR: Version file not found: $FILE"
+              MISMATCH=1
+              continue
+            fi
+
+            FILE_VERSION=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$FILE" | head -1)
+
+            if [ -z "$FILE_VERSION" ]; then
+              echo "ERROR: Could not extract version from $FILE"
+              MISMATCH=1
+              continue
+            fi
+
+            if [ "$FILE_VERSION" != "$INPUT_VERSION" ]; then
+              echo "ERROR: Version mismatch in $FILE"
+              echo "  Expected: $INPUT_VERSION"
+              echo "  Found: $FILE_VERSION"
+              MISMATCH=1
+            else
+              echo "✓ $FILE: $FILE_VERSION"
+            fi
+          done < <(echo '${{ steps.config.outputs.version_files }}' | jq -r '.[]')
+
+          if [ $MISMATCH -eq 1 ]; then
+            echo ""
+            echo "Version files are not consistent with input version."
+            echo "This usually means:"
+            echo "  1. The release PR was not merged yet, or"
+            echo "  2. The release PR merge had conflicts that weren't resolved correctly"
+            echo ""
+            echo "Fix: Run the 'Prepare Release' workflow and merge the PR first."
+            exit 1
+          fi
+
+          echo "✓ All version checks passed"
 
       - name: Verify tag does not exist
         run: |
