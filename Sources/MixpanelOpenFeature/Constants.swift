@@ -10,7 +10,7 @@ import Foundation
 /// Constants for MixpanelOpenFeature library
 public struct MixpanelOpenFeatureConstants {
     /// Current library version
-    private static let libVersion = "0.1.0"
+    private static let libVersion = "0.2.0"
 
     /// Library identifier
     private static let mpLib = "swift-openfeature"
