@@ -175,20 +175,22 @@ jobs:
         run: |
           FULL_TAG="${{ steps.config.outputs.full_tag }}"
 
-          echo "Creating GitHub Release for $FULL_TAG..."
+          echo "Creating GitHub Release draft for $FULL_TAG..."
 
           if [ "${{ steps.extract_changelog.outputs.CHANGELOG_FOUND }}" = "true" ]; then
             # Use curated changelog from CHANGELOG.md
             gh release create "$FULL_TAG" \
               --title "Release ${{ inputs.version }}" \
-              --notes-file /tmp/release-notes.md
-            echo "✓ GitHub Release created with changelog from CHANGELOG.md"
+              --notes-file /tmp/release-notes.md \
+              --draft
+            echo "✓ GitHub Release draft created with changelog from CHANGELOG.md"
           else
             # Fallback to auto-generated notes
             gh release create "$FULL_TAG" \
               --title "Release ${{ inputs.version }}" \
-              --generate-notes
-            echo "✓ GitHub Release created with auto-generated notes"
+              --generate-notes \
+              --draft
+            echo "✓ GitHub Release draft created with auto-generated notes"
           fi
 
       - name: SPM release complete
@@ -196,6 +198,10 @@ jobs:
           FULL_TAG="${{ steps.config.outputs.full_tag }}"
 
           echo "✅ Tag $FULL_TAG created successfully!"
-          echo "✅ GitHub Release published!"
+          echo "✅ GitHub Release created as draft"
           echo ""
-          echo "Swift Package Manager users can now use version ${{ inputs.version }}"
+          echo "Next step: review the draft at"
+          echo "  https://github.com/${{ github.repository }}/releases"
+          echo "and click Publish release once it looks good."
+          echo ""
+          echo "Swift Package Manager users will see version ${{ inputs.version }} once the draft is published."
