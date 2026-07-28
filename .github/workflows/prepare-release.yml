@@ -135,9 +135,9 @@ jobs:
           # Add changelog
           git add "${{ steps.config.outputs.changelog }}"
 
-          git commit -m "release: prepare $VERSION
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+          git commit \
+            -m "release: prepare $VERSION" \
+            -m "Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
           git push origin "$BRANCH"
 
@@ -167,34 +167,36 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
             ' CHANGELOG.md)
           fi
 
-          # Create PR body
-          PR_BODY=$(cat <<EOF
-## Release $VERSION
-
-This PR prepares the release for version \`$VERSION\`.
-
-### Changes in this release
-
-$CHANGELOG_SECTION
-
-### Checklist
-
-- [ ] CHANGELOG.md updated with release notes
-- [ ] All CI checks pass
-
-### Next steps
-
-After merging this PR:
-1. Run the **Release SPM** workflow with version \`$VERSION\`
-2. Publish the draft GitHub Release
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)
+          # Write PR body to a file. Avoids inline <<EOF heredocs whose
+          # unindented terminator (required by bash) would break out of
+          # the YAML block scalar and fail workflow validation.
+          PR_BODY_FILE="$(mktemp)"
+          {
+            echo "## Release $VERSION"
+            echo ""
+            echo "This PR prepares the release for version \`$VERSION\`."
+            echo ""
+            echo "### Changes in this release"
+            echo ""
+            echo "$CHANGELOG_SECTION"
+            echo ""
+            echo "### Checklist"
+            echo ""
+            echo "- [ ] CHANGELOG.md updated with release notes"
+            echo "- [ ] All CI checks pass"
+            echo ""
+            echo "### Next steps"
+            echo ""
+            echo "After merging this PR:"
+            echo "1. Run the **Release SPM** workflow with version \`$VERSION\`"
+            echo "2. Publish the draft GitHub Release"
+            echo ""
+            echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+          } > "$PR_BODY_FILE"
 
           gh pr create \
             --title "release: prepare $VERSION" \
-            --body "$PR_BODY" \
+            --body-file "$PR_BODY_FILE" \
             --base main \
             --head "$BRANCH"
 
