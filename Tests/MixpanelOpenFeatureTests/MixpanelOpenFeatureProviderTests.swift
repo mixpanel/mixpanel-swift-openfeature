@@ -392,7 +392,8 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
         XCTAssertEqual(events.count, 3)
         XCTAssertEqual(events.prefix(2), [.ready(nil), .reconciling(nil)])
-        if case .error = events.last {} else {
+        if case .error = events.last {
+        } else {
             XCTFail("Expected .error, got \(String(describing: events.last))")
         }
         XCTAssertEqual(provider.status, .error)
