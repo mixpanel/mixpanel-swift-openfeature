@@ -60,12 +60,15 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     public func initialize(initialContext: (any EvaluationContext)?) -> Future<Void, Never> {
         Future { promise in
             guard let context = initialContext else {
-                self.statusTracker.send(.ready(nil))
-                promise(.success(()))
+                // Coalesces with the SDK's init-time prefetch, if one is in flight.
+                self.flags.loadFlags { _ in
+                    self.statusTracker.send(self.loadOutcome(.ready(nil)))
+                    promise(.success(()))
+                }
                 return
             }
             self.flags.setContext(Self.convertContext(context)) {
-                self.statusTracker.send(.ready(nil))
+                self.statusTracker.send(self.loadOutcome(.ready(nil)))
                 promise(.success(()))
             }
         }
@@ -77,10 +80,25 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
         Future { promise in
             self.statusTracker.send(.reconciling(nil))
             self.flags.setContext(Self.convertContext(newContext)) {
-                self.statusTracker.send(.contextChanged(nil))
+                self.statusTracker.send(self.loadOutcome(.contextChanged(nil)))
                 promise(.success(()))
             }
         }
+    }
+
+    /// The event to emit once a flag load completes: `success` if any flags are servable,
+    /// otherwise `.error`.
+    ///
+    /// `MixpanelFlags.setContext` doesn't report whether its fetch succeeded, so this checks
+    /// `areFlagsReady()` instead. Limitations: a failed fetch that still has earlier or
+    /// persisted flags reports `success` (not `.stale`), and after `.error` the status stays
+    /// `.error` until the next context change, even if a later background fetch succeeds.
+    /// Evaluations aren't gated on status, so served values are unaffected either way.
+    private func loadOutcome(_ success: ProviderEvent) -> ProviderEvent {
+        if flags.areFlagsReady() {
+            return success
+        }
+        return .error(ProviderEventDetails(message: "Mixpanel feature flags could not be loaded"))
     }
 
     public func getBooleanEvaluation(

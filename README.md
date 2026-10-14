@@ -256,6 +256,17 @@ if details.errorCode == .typeMismatch {
 }
 ```
 
+### Provider Status
+
+After initialization and after each context change, the provider reports `READY` if Mixpanel has any flags to serve, and `ERROR` if none could be loaded (for example, the first fetch failed while offline). During a context change the status is `RECONCILING` until the new flags load.
+
+The status is derived from whether flags are available, not from the outcome of the individual fetch, so:
+
+- If a fetch fails but earlier or persisted flags are still available, the status is `READY` (not `STALE`), and those flags keep being served.
+- After `ERROR`, the status stays `ERROR` until the next context change, even if a later background fetch succeeds.
+
+Evaluations are not gated on status. Flag values and error codes are the same whatever the status is.
+
 ## Troubleshooting
 
 ### Flags Always Return Default Values
@@ -292,7 +303,7 @@ When you update the OpenFeature context, the provider needs to fetch new flag va
 let newCtx = MutableContext(
     structure: MutableStructure(attributes: ["plan": .string("premium")])
 )
-await OpenFeatureAPI.shared.setEvaluationContext(evaluationContext: newCtx)
+await OpenFeatureAPI.shared.setEvaluationContextAndWait(evaluationContext: newCtx)
 
 // Now evaluate with new context
 let value = client.getBooleanValue(key: "premium-feature", defaultValue: false)
