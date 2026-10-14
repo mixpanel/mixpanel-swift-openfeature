@@ -9,7 +9,7 @@ struct MixpanelProviderMetadata: ProviderMetadata {
 
 public class MixpanelOpenFeatureProvider: FeatureProvider {
     private let flags: MixpanelFlags
-    private let eventHandler = EventHandler()
+    private let statusTracker = ProviderStatusTracker()
 
     /// Outcome of a single flag resolution. `resolve()` dispatches on
     /// `MixpanelFlagVariant.source` to distinguish the three fallback reasons
@@ -51,27 +51,34 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
         self.mixpanel = instance
     }
 
-    public func observe() -> AnyPublisher<ProviderEvent?, Never> {
-        return eventHandler.observe()
+    public var status: ProviderStatus { statusTracker.status }
+
+    public func observe() -> AnyPublisher<ProviderEvent, Never> {
+        return statusTracker.observe()
     }
 
-    public func initialize(initialContext: (any EvaluationContext)?) async throws {
-        guard let context = initialContext else { return }
-        let contextDict = Self.convertContext(context)
-        await withCheckedContinuation { continuation in
-            flags.setContext(contextDict) {
-                continuation.resume()
+    public func initialize(initialContext: (any EvaluationContext)?) -> Future<Void, Never> {
+        Future { promise in
+            guard let context = initialContext else {
+                self.statusTracker.send(.ready(nil))
+                promise(.success(()))
+                return
+            }
+            self.flags.setContext(Self.convertContext(context)) {
+                self.statusTracker.send(.ready(nil))
+                promise(.success(()))
             }
         }
     }
 
     public func onContextSet(
         oldContext: (any EvaluationContext)?, newContext: any EvaluationContext
-    ) async throws {
-        let contextDict = Self.convertContext(newContext)
-        await withCheckedContinuation { continuation in
-            flags.setContext(contextDict) {
-                continuation.resume()
+    ) -> Future<Void, Never> {
+        Future { promise in
+            self.statusTracker.send(.reconciling(nil))
+            self.flags.setContext(Self.convertContext(newContext)) {
+                self.statusTracker.send(.contextChanged(nil))
+                promise(.success(()))
             }
         }
     }

@@ -286,7 +286,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
         mock.variants["flag"] = MixpanelFlagVariant(key: "v", value: true)
         let provider = MixpanelOpenFeatureProvider(flags: mock)
 
-        try await provider.initialize(initialContext: ImmutableContext(targetingKey: "user-123"))
+        await provider.initialize(initialContext: ImmutableContext(targetingKey: "user-123")).value
 
         XCTAssertEqual(mock.lastSetContext?["targetingKey"] as? String, "user-123")
 
@@ -299,7 +299,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
         mock.variants["flag"] = MixpanelFlagVariant(key: "v", value: true)
         let provider = MixpanelOpenFeatureProvider(flags: mock)
 
-        try await provider.initialize(initialContext: nil)
+        await provider.initialize(initialContext: nil).value
 
         XCTAssertNil(mock.lastSetContext)
     }
@@ -311,7 +311,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
 
         let oldCtx = ImmutableContext(targetingKey: "user-old")
         let newCtx = ImmutableContext(targetingKey: "user-new")
-        try await provider.onContextSet(oldContext: oldCtx, newContext: newCtx)
+        await provider.onContextSet(oldContext: oldCtx, newContext: newCtx).value
 
         XCTAssertEqual(mock.lastSetContext?["targetingKey"] as? String, "user-new")
 
@@ -332,7 +332,7 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
                 "active": .boolean(true),
             ])
         )
-        try await provider.initialize(initialContext: context)
+        await provider.initialize(initialContext: context).value
 
         XCTAssertEqual(mock.lastSetContext?["targetingKey"] as? String, "user-123")
         XCTAssertEqual(mock.lastSetContext?["plan"] as? String, "premium")

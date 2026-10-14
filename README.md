@@ -13,8 +13,17 @@ This package provides a bridge between Mixpanel's native feature flags implement
 
 ## Requirements
 
-- iOS 14.0+ / tvOS 14.0+ / macOS 11.0+ / watchOS 7.0+
-- Swift 5.5+
+- iOS 15.0+ / tvOS 15.0+ / macOS 12.0+ / watchOS 9.0+
+- Swift 5.7+
+
+### Version Support Policy
+
+Xcode 27 rejects deployment targets below iOS 15 / tvOS 15 / macOS 12 / watchOS 9, so those are the minimum platform versions for this package (starting with `1.0.0`).
+
+- **Adding support:** we add support for each new Xcode's deployment-target floor promptly after its GM release.
+- **Dropping support:** we drop the previous floor only when Apple's SDK submission deadline requires it (iOS 27 SDK for all App Store submissions starting April 2027), not before.
+- **Previous release line:** need an older platform floor? Stay on the previous release line (`0.2.x`, which supports iOS 14 / tvOS 14 / macOS 11 / watchOS 7) and build with Xcode 26. It receives security fixes, crash fixes and data-loss fixes through Apple's deadline. New features are not backported.
+- **Versioning:** raising the minimum platform versions ships as a breaking release, so existing version ranges never pick it up silently. `1.0.0` is that release: it raises the platform floor and requires `mixpanel-swift` 7.0.0+. SwiftPM's `from: "0.x.y"` resolves only below `1.0.0`, so existing `0.x` consumers stay on `0.2.x` until they opt in.
 
 ## Installation
 
@@ -24,7 +33,7 @@ Add the following to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mixpanel/mixpanel-swift-openfeature", from: "0.1.0"),
+    .package(url: "https://github.com/mixpanel/mixpanel-swift-openfeature", from: "1.0.0"),
 ]
 ```
 
