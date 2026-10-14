@@ -84,6 +84,71 @@ class MockMixpanelFlags: MixpanelFlags {
     }
 }
 
+/// Holds `setContext` / `loadFlags(completion:)` callbacks until `releasePending()` is called,
+/// so tests can observe provider state while a flag load is still in flight.
+final class HeldCallbackMockFlags: MockMixpanelFlags {
+    private let lock = NSLock()
+    private var pending: [() -> Void] = []
+    var holdCallbacks = true
+
+    var pendingCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return pending.count
+    }
+
+    private func hold(_ callback: @escaping () -> Void) {
+        guard holdCallbacks else { return callback() }
+        lock.lock()
+        pending.append(callback)
+        lock.unlock()
+    }
+
+    override func loadFlags(completion: ((Bool) -> Void)?) {
+        loadFlagsCallCount += 1
+        hold { completion?(self.ready) }
+    }
+
+    override func setContext(_ context: [String: Any], completion: @escaping () -> Void) {
+        lastSetContext = context
+        hold(completion)
+    }
+
+    /// Runs every held callback, in the order it was received.
+    func releasePending() {
+        lock.lock()
+        let callbacks = pending
+        pending = []
+        lock.unlock()
+        callbacks.forEach { $0() }
+    }
+}
+
+/// Records whether a lifecycle `Future` has resolved.
+final class FutureCompletion {
+    private let lock = NSLock()
+    private var _isComplete = false
+    private var cancellable: AnyCancellable?
+    let expectation: XCTestExpectation
+
+    var isComplete: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _isComplete
+    }
+
+    init(_ future: Future<Void, Never>, description: String) {
+        expectation = XCTestExpectation(description: description)
+        cancellable = future.sink { [weak self] _ in
+            guard let self = self else { return }
+            self.lock.lock()
+            self._isComplete = true
+            self.lock.unlock()
+            self.expectation.fulfill()
+        }
+    }
+}
+
 // MARK: - Tests
 
 final class MixpanelOpenFeatureProviderTests: XCTestCase {
@@ -397,6 +462,109 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
             XCTFail("Expected .error, got \(String(describing: events.last))")
         }
         XCTAssertEqual(provider.status, .error)
+    }
+
+    // MARK: - Pending Loads
+
+    func testInitializeStaysNotReadyAndUnfinishedUntilFlagsLoad() async {
+        let mock = HeldCallbackMockFlags()
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+
+        let completion = FutureCompletion(
+            provider.initialize(initialContext: ImmutableContext(targetingKey: "user-123")),
+            description: "initialize resolves")
+
+        XCTAssertEqual(mock.pendingCount, 1)
+        XCTAssertEqual(provider.status, .notReady)
+        XCTAssertFalse(completion.isComplete)
+
+        mock.releasePending()
+        await fulfillment(of: [completion.expectation], timeout: 5.0)
+
+        XCTAssertEqual(provider.status, .ready)
+        XCTAssertTrue(completion.isComplete)
+    }
+
+    func testInitializeWithNilContextStaysNotReadyAndUnfinishedUntilFlagsLoad() async {
+        let mock = HeldCallbackMockFlags()
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+
+        let completion = FutureCompletion(
+            provider.initialize(initialContext: nil), description: "initialize resolves")
+
+        XCTAssertEqual(mock.pendingCount, 1)
+        XCTAssertEqual(provider.status, .notReady)
+        XCTAssertFalse(completion.isComplete)
+
+        mock.releasePending()
+        await fulfillment(of: [completion.expectation], timeout: 5.0)
+
+        XCTAssertEqual(provider.status, .ready)
+        XCTAssertTrue(completion.isComplete)
+    }
+
+    func testInitializeErrorsOnlyAfterFlagsFailToLoad() async {
+        let mock = HeldCallbackMockFlags()
+        mock.ready = false
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+
+        let completion = FutureCompletion(
+            provider.initialize(initialContext: ImmutableContext(targetingKey: "user-123")),
+            description: "initialize resolves")
+
+        XCTAssertEqual(provider.status, .notReady)
+        XCTAssertFalse(completion.isComplete)
+
+        mock.releasePending()
+        await fulfillment(of: [completion.expectation], timeout: 5.0)
+
+        XCTAssertEqual(provider.status, .error)
+    }
+
+    func testOnContextSetStaysReconcilingAndUnfinishedUntilFlagsLoad() async {
+        let mock = HeldCallbackMockFlags()
+        mock.holdCallbacks = false
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+        await provider.initialize(initialContext: nil).value
+        XCTAssertEqual(provider.status, .ready)
+
+        mock.holdCallbacks = true
+        let completion = FutureCompletion(
+            provider.onContextSet(oldContext: nil, newContext: ImmutableContext(targetingKey: "user-new")),
+            description: "onContextSet resolves")
+
+        // The fetch is in flight: still reconciling, and the Future hasn't resolved.
+        XCTAssertEqual(mock.pendingCount, 1)
+        XCTAssertEqual(provider.status, .reconciling)
+        XCTAssertFalse(completion.isComplete)
+
+        mock.releasePending()
+        await fulfillment(of: [completion.expectation], timeout: 5.0)
+
+        XCTAssertEqual(provider.status, .ready)
+        XCTAssertTrue(completion.isComplete)
+    }
+
+    func testOnContextSetErrorsOnlyAfterFlagsFailToLoad() async {
+        let mock = HeldCallbackMockFlags()
+        mock.holdCallbacks = false
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+        await provider.initialize(initialContext: nil).value
+
+        mock.holdCallbacks = true
+        mock.ready = false
+        let completion = FutureCompletion(
+            provider.onContextSet(oldContext: nil, newContext: ImmutableContext(targetingKey: "user-new")),
+            description: "onContextSet resolves")
+
+        XCTAssertEqual(provider.status, .reconciling)
+        XCTAssertFalse(completion.isComplete)
+
+        mock.releasePending()
+        await fulfillment(of: [completion.expectation], timeout: 5.0)
+
+        XCTAssertEqual(provider.status, .error)
+        XCTAssertTrue(completion.isComplete)
     }
 
     /// Subscribes to the provider's events, runs `action`, and returns the first `count` events.
