@@ -567,6 +567,81 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
         XCTAssertTrue(completion.isComplete)
     }
 
+    // MARK: - Status Recovery On Evaluation
+
+    func testEvaluationClearsErrorOnceFlagsLoad() async throws {
+        let mock = MockMixpanelFlags()
+        mock.ready = false
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+        await provider.initialize(initialContext: nil).value
+        XCTAssertEqual(provider.status, .error)
+
+        // A later background fetch succeeds.
+        mock.ready = true
+        mock.variants["flag"] = MixpanelFlagVariant(key: "v", value: true)
+
+        let events = await collectEvents(from: provider, count: 2) {
+            let result = try? provider.getBooleanEvaluation(key: "flag", defaultValue: false, context: nil)
+            XCTAssertEqual(result?.value, true)
+        }
+
+        // First event is the tracker replaying the current (.error) status to the new subscriber.
+        XCTAssertEqual(events.last, .ready(nil))
+        XCTAssertEqual(provider.status, .ready)
+    }
+
+    /// `identify()` with a new distinct ID resets Mixpanel's flags, completing an in-flight
+    /// load with no flags. The new identity's fetch then loads them.
+    func testEvaluationClearsErrorAfterIdentifyResetDuringInitialize() async throws {
+        let mock = HeldCallbackMockFlags()
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+        let completion = FutureCompletion(
+            provider.initialize(initialContext: nil), description: "initialize resolves")
+
+        mock.ready = false
+        mock.releasePending()
+        await fulfillment(of: [completion.expectation], timeout: 5.0)
+        XCTAssertEqual(provider.status, .error)
+
+        mock.ready = true
+        _ = try provider.getBooleanEvaluation(key: "flag", defaultValue: false, context: nil)
+
+        XCTAssertEqual(provider.status, .ready)
+    }
+
+    func testEvaluationKeepsErrorWhileFlagsAreNotReady() async throws {
+        let mock = MockMixpanelFlags()
+        mock.ready = false
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+        await provider.initialize(initialContext: nil).value
+
+        _ = try provider.getBooleanEvaluation(key: "flag", defaultValue: false, context: nil)
+
+        XCTAssertEqual(provider.status, .error)
+    }
+
+    func testEvaluationDoesNotChangeStatusBeforeInitialize() throws {
+        let provider = MixpanelOpenFeatureProvider(flags: MockMixpanelFlags())
+
+        _ = try provider.getBooleanEvaluation(key: "flag", defaultValue: false, context: nil)
+
+        XCTAssertEqual(provider.status, .notReady)
+    }
+
+    func testEvaluationDoesNotChangeStatusWhileReconciling() async throws {
+        let mock = HeldCallbackMockFlags()
+        mock.holdCallbacks = false
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+        await provider.initialize(initialContext: nil).value
+
+        mock.holdCallbacks = true
+        _ = provider.onContextSet(oldContext: nil, newContext: ImmutableContext(targetingKey: "user-new"))
+        _ = try provider.getBooleanEvaluation(key: "flag", defaultValue: false, context: nil)
+
+        XCTAssertEqual(provider.status, .reconciling)
+        mock.releasePending()
+    }
+
     /// Subscribes to the provider's events, runs `action`, and returns the first `count` events.
     private func collectEvents(
         from provider: MixpanelOpenFeatureProvider, count: Int, action: () -> Void

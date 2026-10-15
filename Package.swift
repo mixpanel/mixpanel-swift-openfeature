@@ -20,7 +20,7 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/open-feature/swift-sdk.git",
-            from: "0.6.0"
+            .upToNextMinor(from: "0.7.0")
         ),
     ],
     targets: [

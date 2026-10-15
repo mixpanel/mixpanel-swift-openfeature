@@ -258,12 +258,11 @@ if details.errorCode == .typeMismatch {
 
 ### Provider Status
 
-After initialization and after each context change, the provider reports `READY` if Mixpanel has any flags to serve, and `ERROR` if none could be loaded (for example, the first fetch failed while offline). During a context change the status is `RECONCILING` until the new flags load.
+After initialization and after each context change, the provider reports `READY` if Mixpanel has any flags to serve, and `ERROR` if none could be loaded (for example, the first fetch failed with no cache, or feature flags are not enabled in `MixpanelOptions`). During a context change the status is `RECONCILING` until the new flags load.
 
-The status is derived from whether flags are available, not from the outcome of the individual fetch, so:
+The status is not updated by background fetches on its own. Instead, once flags are available again, the next flag evaluation moves `ERROR` to `READY`.
 
-- If a fetch fails but earlier or persisted flags are still available, the status is `READY` (not `STALE`), and those flags keep being served.
-- After `ERROR`, the status stays `ERROR` until the next context change, even if a later background fetch succeeds.
+If a fetch fails but earlier or persisted flags are still available, the status is `READY` (not `STALE`), and those flags keep being served.
 
 Evaluations are not gated on status. Flag values and error codes are the same whatever the status is.
 

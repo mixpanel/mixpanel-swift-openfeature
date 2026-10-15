@@ -90,10 +90,9 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
     /// otherwise `.error`.
     ///
     /// `MixpanelFlags.setContext` doesn't report whether its fetch succeeded, so this checks
-    /// `areFlagsReady()` instead. Limitations: a failed fetch that still has earlier or
-    /// persisted flags reports `success` (not `.stale`), and after `.error` the status stays
-    /// `.error` until the next context change, even if a later background fetch succeeds.
-    /// Evaluations aren't gated on status, so served values are unaffected either way.
+    /// `areFlagsReady()` instead. Limitation: a failed fetch that still has earlier or
+    /// persisted flags reports `success`. Evaluations aren't gated on status,
+    /// so served values are unaffected either way.
     private func loadOutcome(_ success: ProviderEvent) -> ProviderEvent {
         if flags.areFlagsReady() {
             return success
@@ -210,6 +209,11 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
         // its own fallback in this case — the switch below catches that too.
         guard flags.areFlagsReady() else {
             return .error(errorCode: .providerNotReady, reason: "ERROR")
+        }
+        // Lifecycle loads only report status when they finish, so flags that load later (a
+        // background fetch, or the refetch after `identify()` resets them) don't clear `.error`.
+        if statusTracker.status == .error {
+            statusTracker.send(.ready(nil))
         }
 
         // Pass a plain fallback; the base SDK re-stamps it with the concrete
