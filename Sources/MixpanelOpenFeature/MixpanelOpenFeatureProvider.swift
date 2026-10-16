@@ -9,7 +9,7 @@ struct MixpanelProviderMetadata: ProviderMetadata {
 
 public class MixpanelOpenFeatureProvider: FeatureProvider {
     private let flags: MixpanelFlags
-    private let eventHandler = EventHandler()
+    private let statusTracker = ProviderStatusTracker()
 
     /// Outcome of a single flag resolution. `resolve()` dispatches on
     /// `MixpanelFlagVariant.source` to distinguish the three fallback reasons
@@ -51,29 +51,53 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
         self.mixpanel = instance
     }
 
-    public func observe() -> AnyPublisher<ProviderEvent?, Never> {
-        return eventHandler.observe()
+    public var status: ProviderStatus { statusTracker.status }
+
+    public func observe() -> AnyPublisher<ProviderEvent, Never> {
+        return statusTracker.observe()
     }
 
-    public func initialize(initialContext: (any EvaluationContext)?) async throws {
-        guard let context = initialContext else { return }
-        let contextDict = Self.convertContext(context)
-        await withCheckedContinuation { continuation in
-            flags.setContext(contextDict) {
-                continuation.resume()
+    public func initialize(initialContext: (any EvaluationContext)?) -> Future<Void, Never> {
+        Future { promise in
+            guard let context = initialContext else {
+                // Coalesces with the SDK's init-time prefetch, if one is in flight.
+                self.flags.loadFlags { _ in
+                    self.statusTracker.send(self.loadOutcome(.ready(nil)))
+                    promise(.success(()))
+                }
+                return
+            }
+            self.flags.setContext(Self.convertContext(context)) {
+                self.statusTracker.send(self.loadOutcome(.ready(nil)))
+                promise(.success(()))
             }
         }
     }
 
     public func onContextSet(
         oldContext: (any EvaluationContext)?, newContext: any EvaluationContext
-    ) async throws {
-        let contextDict = Self.convertContext(newContext)
-        await withCheckedContinuation { continuation in
-            flags.setContext(contextDict) {
-                continuation.resume()
+    ) -> Future<Void, Never> {
+        Future { promise in
+            self.statusTracker.send(.reconciling(nil))
+            self.flags.setContext(Self.convertContext(newContext)) {
+                self.statusTracker.send(self.loadOutcome(.contextChanged(nil)))
+                promise(.success(()))
             }
         }
+    }
+
+    /// The event to emit once a flag load completes: `success` if any flags are servable,
+    /// otherwise `.error`.
+    ///
+    /// `MixpanelFlags.setContext` doesn't report whether its fetch succeeded, so this checks
+    /// `areFlagsReady()` instead. Limitation: a failed fetch that still has earlier or
+    /// persisted flags reports `success`. Evaluations aren't gated on status,
+    /// so served values are unaffected either way.
+    private func loadOutcome(_ success: ProviderEvent) -> ProviderEvent {
+        if flags.areFlagsReady() {
+            return success
+        }
+        return .error(ProviderEventDetails(message: "Mixpanel feature flags could not be loaded"))
     }
 
     public func getBooleanEvaluation(
@@ -185,6 +209,11 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
         // its own fallback in this case — the switch below catches that too.
         guard flags.areFlagsReady() else {
             return .error(errorCode: .providerNotReady, reason: "ERROR")
+        }
+        // Lifecycle loads only report status when they finish, so flags that load later (a
+        // background fetch, or the refetch after `identify()` resets them) don't clear `.error`.
+        if statusTracker.status == .error {
+            statusTracker.send(.ready(nil))
         }
 
         // Pass a plain fallback; the base SDK re-stamps it with the concrete
