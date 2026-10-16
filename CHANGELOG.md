@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 
 
+## [1.0.0](https://github.com/mixpanel/mixpanel-swift-openfeature/tree/1.0.0) (2026-10-16)
+
+### Features
+
+- Raise minimum supported ios versions (#11) ([#11](https://github.com/mixpanel/mixpanel-swift-openfeature/pull/11))
+
+[Full Changelog](https://github.com/mixpanel/mixpanel-swift-openfeature/compare/0.2.0...1.0.0)
+
+
 ## [0.2.0](https://github.com/mixpanel/mixpanel-swift-openfeature/tree/0.2.0) (2026-07-28)
 
 ### Features
