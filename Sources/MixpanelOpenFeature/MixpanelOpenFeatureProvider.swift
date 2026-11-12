@@ -218,7 +218,10 @@ public class MixpanelOpenFeatureProvider: FeatureProvider {
 
         // Pass a plain fallback; the base SDK re-stamps it with the concrete
         // `Source.fallback(reason:)` reason when it can't serve a real variant.
-        let fallback = MixpanelFlagVariant(key: "")
+        // The reserved key tells mixpanel-swift to tag the `$experiment_started` exposure with
+        // `$openfeature_provider: true` (SDK-448). The key is never surfaced: fallbacks are
+        // mapped to OpenFeature errors below. Older SDKs ignore it.
+        let fallback = MixpanelFlagVariant(key: "$openfeature_provider")
         let variant = flags.getVariantSync(key, fallback: fallback)
 
         if case .fallback(let reason) = variant.source {
