@@ -21,6 +21,7 @@ class MockMixpanelFlags: MixpanelFlags {
     /// tests to simulate `.notReady` and `.backendError` fallbacks that the
     /// base SDK produces internally.
     var variantSources: [String: MixpanelFlagVariant.Source] = [:]
+    var lastGetVariantSyncFallback: MixpanelFlagVariant?
 
     func loadFlags() {}
 
@@ -40,6 +41,7 @@ class MockMixpanelFlags: MixpanelFlags {
         // Mirror the base SDK's stamping behavior: found variants come back as
         // `.network`; missing keys come back as `.fallback(reason: .flagNotFound)`.
         // Tests can override the stamp per key via `variantSources`.
+        lastGetVariantSyncFallback = fallback
         if let source = variantSources[flagName] {
             let base = variants[flagName] ?? fallback
             return base.withSource(source)
@@ -163,6 +165,26 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
     func testHooksEmpty() {
         let provider = MixpanelOpenFeatureProvider(flags: MockMixpanelFlags())
         XCTAssertTrue(provider.hooks.isEmpty)
+    }
+
+    // MARK: - OpenFeature exposure marker (SDK-448)
+
+    func testEvaluationPassesOpenFeatureMarkerFallbackKey() throws {
+        let mock = MockMixpanelFlags()
+        mock.variants["bool-flag"] = MixpanelFlagVariant(key: "on", value: true)
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+
+        _ = try provider.getBooleanEvaluation(key: "bool-flag", defaultValue: false, context: nil)
+        XCTAssertEqual(mock.lastGetVariantSyncFallback?.key, "$openfeature_provider")
+    }
+
+    func testMarkerFallbackKeyIsNotSurfacedWhenFlagMissing() throws {
+        let provider = MixpanelOpenFeatureProvider(flags: MockMixpanelFlags())
+
+        let result = try provider.getStringEvaluation(key: "missing", defaultValue: "dflt", context: nil)
+        XCTAssertEqual(result.value, "dflt")
+        XCTAssertNil(result.variant)
+        XCTAssertEqual(result.errorCode, .flagNotFound)
     }
 
     // MARK: - Boolean Evaluation
