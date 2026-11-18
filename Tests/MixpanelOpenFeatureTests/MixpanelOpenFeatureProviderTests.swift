@@ -187,6 +187,18 @@ final class MixpanelOpenFeatureProviderTests: XCTestCase {
         XCTAssertEqual(result.errorCode, .flagNotFound)
     }
 
+    func testMarkerFallbackKeyIsNotSurfacedWhenFlagsNotReady() throws {
+        let mock = MockMixpanelFlags()
+        mock.variantSources["stale-flag"] = .fallback(reason: .notReady)
+        let provider = MixpanelOpenFeatureProvider(flags: mock)
+
+        let result = try provider.getStringEvaluation(key: "stale-flag", defaultValue: "dflt", context: nil)
+        XCTAssertEqual(mock.lastGetVariantSyncFallback?.key, "$openfeature_provider")
+        XCTAssertEqual(result.value, "dflt")
+        XCTAssertNil(result.variant)
+        XCTAssertEqual(result.errorCode, .providerNotReady)
+    }
+
     // MARK: - Boolean Evaluation
 
     func testBooleanEvaluation() throws {
