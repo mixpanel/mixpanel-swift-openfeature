@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 
 
+## [1.0.1](https://github.com/mixpanel/mixpanel-swift-openfeature/tree/1.0.1) (2026-11-20)
+
+### Features
+
+- tag OpenFeature exposures with $openfeature_provider (SDK-448) (#13) ([#13](https://github.com/mixpanel/mixpanel-swift-openfeature/pull/13))
+
+[Full Changelog](https://github.com/mixpanel/mixpanel-swift-openfeature/compare/1.0.0...1.0.1)
+
+
 ## [1.0.0](https://github.com/mixpanel/mixpanel-swift-openfeature/tree/1.0.0) (2026-10-16)
 
 ### Features
