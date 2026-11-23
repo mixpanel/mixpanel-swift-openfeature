@@ -16,7 +16,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/mixpanel/mixpanel-swift",
-            from: "7.0.0"
+            from: "7.1.1"
         ),
         .package(
             url: "https://github.com/open-feature/swift-sdk.git",
